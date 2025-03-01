@@ -1,5 +1,5 @@
 # BurpShowDecompressed BurpSuite Extension
-Show file list response contains compressed file
+Show file list if the Burp response tab contains a compressed file
 
 
 #### Changelog
