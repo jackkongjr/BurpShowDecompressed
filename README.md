@@ -4,8 +4,8 @@ Show file list response contains compressed file
 
 #### Changelog
 
-01/03/2025 - Added search field and browsing over tree view
-28/02/2025 - first commit
+ - 01/03/2025 - Added search field and browsing over tree view
+ - 28/02/2025 - first commit
 
 
 #### Compile
