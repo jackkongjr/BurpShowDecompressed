@@ -34,4 +34,7 @@ When a response contains a compressed file you can switch to Decompressed tab an
 
 ```
 
-![image](https://github.com/user-attachments/assets/e854eab3-49f1-40be-a0ef-e4845b39557c)
+
+
+![image](https://github.com/user-attachments/assets/d9c527c1-de9d-4bcf-81db-90520825fae2)
+
