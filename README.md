@@ -33,7 +33,7 @@ Done
 #### Usage
 
 ```
-When a response contains a compressed file you can switch to Decompressed tab and view the file list
+When a response contains a compressed file you can switch to Decompress tab and view the file list
 
 ```
 
