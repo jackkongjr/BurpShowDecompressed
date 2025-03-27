@@ -15,6 +15,10 @@ import java.awt.event.FocusEvent;
 import java.awt.event.FocusListener;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
+import java.util.zip.GZIPInputStream;
+import java.util.Arrays;
+import java.io.ByteArrayInputStream;
+import java.io.BufferedInputStream;
 
 import javax.swing.tree.*;
 
@@ -148,21 +152,132 @@ public class BurpShowDecompressed implements IBurpExtender, IMessageEditorTabFac
             byte[] responseBody = java.util.Arrays.copyOfRange(content, bodyOffset, content.length);
             this.currentMessage = responseBody;
             this.output = new StringBuilder();
-            Boolean fileList = loadZipStructure(responseBody);
-            if (fileList) {
-                textArea.setText("Here's the file list\n\n" + this.output.toString());
-            } else {
-                textArea.setText("Response Body:\nIl file NON e' compresso");
-            }
+
+
+            Boolean fileList = loadStructure(responseBody);
+            
             textArea.setCaretPosition(0);
             this.expandCheckBox.setSelected(true);
 
+        }
+
+        private static boolean isGzipped(byte[] data) {
+            return data.length >= 2 && (data[0] == (byte) 0x1F) && (data[1] == (byte) 0x8B);
+        }
+
+        private static boolean isZip(byte[] data) {
+            return data.length >= 4 &&
+                (data[0] == (byte) 0x50) &&
+                (data[1] == (byte) 0x4B) &&
+                (data[2] == (byte) 0x03) &&
+                (data[3] == (byte) 0x04);
         }
 
         private void setPlaceholder(JTextField textField, String placeholderText) {
             textField.setText(placeholderText);
             textField.setForeground(Color.GRAY);
         }
+        private Boolean loadStructure(byte[] data) {
+            if (isGzipped(data)) {
+                return loadTarGzStructure(data);
+            }else if (isZip(data)){
+                return loadZipStructure(data);
+            }
+            return false;
+        }
+
+
+        
+        private Boolean loadTarGzStructure(byte[] gzData){
+
+            String longName = null;
+            try{
+
+                ByteArrayInputStream byteStream = new ByteArrayInputStream(gzData);
+                GZIPInputStream tarInputStream = new GZIPInputStream(byteStream);
+                BufferedInputStream tarInput = new BufferedInputStream(tarInputStream);
+                
+                this.root.removeAllChildren();
+            
+
+                byte[] header = new byte[512];
+
+                while (tarInput.read(header) == 512) {
+                    String name = extractFullName(header);
+                    char typeFlag = (char) header[156];
+                    long size = extractSize(header);
+
+                    if (name.isEmpty()) break;
+
+                    if ("././@LongLink".equals(name)) {
+                        byte[] nameBytes = new byte[(int) size];
+                        int read = tarInput.read(nameBytes);
+                        if (read != size) throw new IOException("Incomplete LongLink read");
+
+                        longName = new String(nameBytes, 0, read).split("\0")[0];
+
+                        long skip = (512 - (size % 512)) % 512;
+                        while (skip > 0) {
+                            long s = tarInput.skip(skip);
+                            if (s <= 0) break;
+                            skip -= s;
+                        }
+
+                        tarInput.mark(512);
+                        byte[] nextHeader = new byte[512];
+                        if (tarInput.read(nextHeader) != 512) break;
+                        char nextType = (char) nextHeader[156];
+                        boolean isRealEntry = nextHeader[0] != 0 &&
+                            (nextType == '0' || nextType == '\0' || nextType == '5');
+
+                        if (isRealEntry) {
+                            name = extractFullName(nextHeader);
+                            if (longName != null) name = longName;
+                            System.out.println(name);
+
+                            long nextSize = extractSize(nextHeader);
+                            long skipNext = nextSize + (512 - (nextSize % 512)) % 512;
+                            while (skipNext > 0) {
+                                long s = tarInput.skip(skipNext);
+                                if (s <= 0) break;
+                                skipNext -= s;
+                            }
+                            longName = null;
+                        } else {
+                            longName = null;
+                        }
+
+                        continue;
+                    }
+
+                    if (longName != null) {
+                        name = longName;
+                        longName = null;
+                    }
+
+                    addPathToTree(name);
+
+                   long skip = size + (512 - (size % 512)) % 512;
+                    while (skip > 0) {
+                        long s = tarInput.skip(skip);
+                        if (s <= 0) break;
+                        skip -= s;
+                    }
+                }
+
+                this.treeModel.nodeStructureChanged(this.root);
+                treeModel.reload();
+                SwingUtilities.invokeLater(() -> expandAll(tree, new TreePath(root)));
+
+            }catch (java.io.IOException e){
+                return false;
+            }
+            
+            return false;
+        }
+
+
+
         private Boolean loadZipStructure(byte[] zipData) {
             StringBuilder fileList = new StringBuilder();
             this.root.removeAllChildren();
@@ -268,6 +383,34 @@ public class BurpShowDecompressed implements IBurpExtender, IMessageEditorTabFac
         @Override
         public byte[] getSelectedData() {
             return textArea.getText().getBytes();
+        }
+
+
+        private static String extractFullName(byte[] header) {
+            String name = extractString(header, 0, 100);
+            String prefix = extractString(header, 345, 155);
+            if (!prefix.isEmpty()) {
+                name = prefix + "/" + name;
+            }
+            return name;
+        }
+
+        private static String extractString(byte[] buf, int offset, int length) {
+            StringBuilder sb = new StringBuilder();
+            for (int i = offset; i < offset + length && buf[i] != 0; i++) {
+                sb.append((char) buf[i]);
+            }
+            return sb.toString();
+        }
+
+        private static long extractSize(byte[] header) {
+            long size = 0;
+            for (int i = 124; i < 124 + 12 && header[i] != 0; i++) {
+                if (header[i] >= '0' && header[i] <= '7') {
+                    size = (size << 3) + (header[i] - '0');
+                }
+            }
+            return size;
         }
 
         private void saveToFile() {
